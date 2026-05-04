@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Bubble Word Pop</title>
+    <style>
+        body { 
+            margin: 0; 
+            overflow: hidden; 
+            background: #87CEEB; 
+            font-family: 'Arial', sans-serif;
+            touch-action: none;
+        }
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            font-size: 24px;
+            font-weight: bold;
+            color: white;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+            pointer-events: none;
+            z-index: 10;
+        }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <div id="ui">Score: <span id="score">0</span></div>
+    <canvas id="gameCanvas"></canvas>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+
+let score = 0;
+let restartHp = 5; // How many taps to restart
+let timeLeft = 30; // 1 minute game
+let isGameOver = false;
+const words = ["CAT", "DOG", "SUN", "MOM", "DAD", "BIG", "RED", "RUN", "HOP", "FISH"];
+const bubbles = [];
+const freedWords = []; // List to show at the end
+
+class Bubble {
+    constructor() {
+        this.word = words[Math.floor(Math.random() * words.length)];
+        this.radius = 55; // Slightly larger for readability
+        this.x = 0;
+        this.y = canvas.height + this.radius;
+
+        let speedIncrease = (score / 50) * 0.2;
+        this.vy = -Math.min(0.5 + speedIncrease, 1.5); 
+        this.vx = (Math.random() - 0.5) * 1.5; 
+        
+        this.maxHp = 3;
+        this.hp = this.maxHp; 
+        this.isPopped = false;
+    }
+
+    draw() {
+        ctx.save();
+        if (!this.isPopped) {
+            // Bubble Body
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+            ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
+            ctx.fill();
+
+            // Circular Progress Ring
+            const ratio = Math.max(0, this.hp / this.maxHp);
+            const startAngle = -Math.PI / 2;
+            const endAngle = startAngle + (Math.PI * 2 * ratio);
+
+            ctx.beginPath();
+            ctx.arc(this.x, this.y, this.radius - 3, startAngle, endAngle);
+            ctx.strokeStyle = ratio > 0.3 ? "#32CD32" : "#FF4500";
+            ctx.lineWidth = 6;
+            ctx.lineCap = "round";
+            ctx.stroke();
+        }
+        
+        // Word Display
+        ctx.fillStyle = this.isPopped ? "#FFD700" : "black";
+        ctx.font = "bold 24px Arial";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(this.word, this.x, this.y);
+        ctx.restore();
+    }
+
+    update() {
+        this.x += this.vx;
+        this.y += this.vy;
+        if (!this.isPopped) {
+            if (this.x + this.radius > canvas.width || this.x - this.radius < 0) this.vx *= -1;
+        } else {
+            this.vy = -10;
+            this.vx = 0;
+        }
+    }
+}
+
+// Timer Countdown
+const timerInterval = setInterval(() => {
+    if (timeLeft > 0) {
+        timeLeft--;
+    } else {
+        isGameOver = true;
+        clearInterval(timerInterval);
+    }
+}, 1000);
+
+function solveCollisions() {
+    const softness = 0.01; // Adjust this (0.01 to 0.1) for "floatiness"
+    
+    for (let i = 0; i < bubbles.length; i++) {
+        for (let j = i + 1; j < bubbles.length; j++) {
+            const b1 = bubbles[i];
+            const b2 = bubbles[j];
+            
+            if (b1.isPopped || b2.isPopped) continue;
+            
+            const dx = b2.x - b1.x;
+            const dy = b2.y - b1.y;
+            const distance = Math.hypot(dx, dy);
+            const minDistance = b1.radius + b2.radius;
+            
+            if (distance < minDistance) {
+                // 1. Calculate how much they are overlapping
+                const overlap = minDistance - distance;
+                
+                // 2. Calculate the direction of the push
+                const nx = dx / distance;
+                const ny = dy / distance;
+                
+                // 3. Apply a GENTLE nudge to velocities instead of a hard swap
+                // This makes them "drift" apart rather than "bounce"
+                b1.vx -= nx * overlap * softness;
+                b1.vy -= ny * overlap * softness;
+                b2.vx += nx * overlap * softness;
+                b2.vy += ny * overlap * softness;
+                
+                // 4. Smoothly slide them out of each other
+                // We only move them 20% of the way each frame to keep it fluid
+                const slideEase = 0.05;
+                b1.x -= nx * (overlap * slideEase);
+                b1.y -= ny * (overlap * slideEase);
+                b2.x += nx * (overlap * slideEase);
+                b2.y += ny * (overlap * slideEase);
+                
+                // 5. Friction/Damping: Slow down their horizontal "panic"
+                b1.vx *= 0.98;
+                b2.vx *= 0.98;
+            }
+        }
+    }
+}
+
+function showSuccessScreen() {
+    // Hide the top UI if it exists
+    if(document.getElementById('ui')) document.getElementById('ui').style.display = 'none';
+
+    ctx.fillStyle = "rgba(0, 0, 0, 0.9)";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    
+    ctx.fillStyle = "white";
+    ctx.textAlign = "center";
+    ctx.font = "bold 32px Arial";
+    ctx.fillText("Great Job!", canvas.width / 2, 60);
+    
+    ctx.font = "20px Arial";
+    ctx.fillText("You freed these words:", canvas.width / 2, 100);
+    
+    // Draw the unique words collected
+    const uniqueWords = [...new Set(freedWords)];
+    ctx.font = "bold 22px Arial";
+    ctx.fillStyle = "#FFD700";
+    uniqueWords.forEach((word, index) => {
+        const row = Math.floor(index / 3);
+        const col = index % 3;
+        ctx.fillText(word, (canvas.width / 4) * (col + 1), 150 + (row * 40));
+    });
+
+    // --- RESTART BUBBLE ---
+    const rx = canvas.width / 2;
+    const ry = canvas.height - 120;
+    const rRadius = 60;
+
+    // Draw Bubble Shape
+    ctx.beginPath();
+    ctx.arc(rx, ry, rRadius, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255, 255, 255, 0.2)";
+    ctx.fill();
+    ctx.strokeStyle = "white";
+    ctx.lineWidth = 3;
+    ctx.stroke();
+
+    // Draw Progress Ring (5 taps total)
+    const ratio = restartHp / 5;
+    ctx.beginPath();
+    ctx.arc(rx, ry, rRadius - 4, -Math.PI/2, (-Math.PI/2) + (Math.PI * 2 * ratio));
+    ctx.strokeStyle = "#32CD32";
+    ctx.lineWidth = 8;
+    ctx.stroke();
+
+    ctx.fillStyle = "white";
+    ctx.font = "bold 18px Arial";
+    ctx.fillText("RESTART", rx, ry - 5);
+    ctx.font = "14px Arial";
+    ctx.fillText("TAP 5x", rx, ry + 15);
+}
+
+function spawnBubble() {
+    if (bubbles.length < 6) {
+        const radius = 55;
+        let x, isOverlapping, newWord;
+        let attempts = 0;
+
+        // 1. Pick a word that isn't already on the screen
+        // We try to find a unique one, but if the screen is full, we move on
+        let wordAttempts = 0;
+        do {
+            newWord = words[Math.floor(Math.random() * words.length)];
+            wordAttempts++;
+        } while (bubbles.some(b => b.word === newWord) && wordAttempts < 10);
+
+        // 2. Find a safe X position (the logic we had before)
+        do {
+            isOverlapping = false;
+            x = Math.random() * (canvas.width - radius * 2) + radius;
+
+            for (let b of bubbles) {
+                if (b.y > canvas.height - 150) {
+                    const horizontalDist = Math.abs(x - b.x);
+                    if (horizontalDist < radius * 2 + 30) {
+                        isOverlapping = true;
+                        break;
+                    }
+                }
+            }
+            attempts++;
+        } while (isOverlapping && attempts < 15);
+
+        // 3. Create the bubble with our unique word
+        const newBubble = new Bubble();
+        newBubble.word = newWord; // Override the random word from constructor
+        newBubble.x = x; 
+        bubbles.push(newBubble);
+    }
+}
+
+function animate() {
+    // Always clear the canvas first
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    
+    if (!isGameOver) {
+        // --- NORMAL GAMEPLAY ---
+        solveCollisions();
+        
+        // UI Timer & Score
+        ctx.fillStyle = "white";
+        ctx.font = "bold 20px Arial";
+        ctx.textAlign = "left";
+        ctx.textAlign = "right";
+        ctx.fillText("Time: " + timeLeft, canvas.width - 20, 30);
+        
+        for (let i = bubbles.length - 1; i >= 0; i--) {
+            bubbles[i].update();
+            bubbles[i].draw();
+            
+            if (bubbles[i].y < -bubbles[i].radius) {
+                if (bubbles[i].isPopped) {
+                    score += 10;
+                    scoreEl.innerText = score;
+                    freedWords.push(bubbles[i].word);
+                }
+                bubbles.splice(i, 1);
+            }
+        }
+        
+      if (Math.random() < 0.02) {
+    spawnBubble();
+}
+    } else {
+        // --- SUCCESS SCREEN ---
+        // We keep calling this so the restart bubble can animate
+        showSuccessScreen();
+    }
+    
+    // This must stay outside the IF/ELSE so the loop never dies
+    requestAnimationFrame(animate);
+}
+
+canvas.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    const touch = e.touches[0];
+    const rect = canvas.getBoundingClientRect();
+    const tx = touch.clientX - rect.left;
+    const ty = touch.clientY - rect.top;
+
+    if (isGameOver) {
+        // Check if the tap hit the Restart Bubble
+        const rx = canvas.width / 2;
+        const ry = canvas.height - 120;
+        const dist = Math.hypot(tx - rx, ty - ry);
+        
+        if (dist < 60) {
+            restartHp--;
+            if (restartHp <= 0) {
+                location.reload(); // Actually restart the game
+            }
+        }
+        return;
+    }
+
+    // Normal Gameplay Taps
+    bubbles.forEach(b => {
+        if (!b.isPopped && Math.hypot(tx - b.x, ty - b.y) < b.radius) {
+            b.hp--;
+            if (b.hp <= 0) b.isPopped = true;
+        }
+    });
+    
+});
+
+animate();
+</script>
+</body>
+</html>
